@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(php artisan:*)",
+      "Bash(mysql:*)",
+      "Bash(rm:*)",
+      "Bash(DB_DATABASE=blacklist_api_test php artisan migrate:fresh:*)",
+      "Bash(curl:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
