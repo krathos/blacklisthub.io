@@ -33,6 +33,289 @@ BlacklistHub is a collaborative fraud prevention REST API that allows companies 
 - Fraud type classification (11 predefined types)
 - Statistics and insights dashboard
 - Phone number tracking across reports
+- **International support with 17 countries and 15 currencies**
+- **Multi-currency debt tracking with automatic USD conversion**
+- **Country-specific Tax ID validation (RFC, SSN, NIF, CPF, etc.)**
+- **Jurisdictional filtering by country**
+
+## International Support
+
+BlacklistHub is a fully internationalized API that supports companies from multiple countries with automatic currency conversion, country-specific tax ID validation, and jurisdictional data separation.
+
+### Supported Countries (17)
+
+The API currently supports the following countries with their respective currencies and tax ID formats:
+
+| Country | Code | Currency | Tax ID Format |
+|---------|------|----------|---------------|
+| 🇲🇽 Mexico | MX | MXN | RFC |
+| 🇺🇸 United States | US | USD | SSN/EIN |
+| 🇪🇸 Spain | ES | EUR | NIF/CIF |
+| 🇧🇷 Brazil | BR | BRL | CPF/CNPJ |
+| 🇦🇷 Argentina | AR | ARS | CUIT/CUIL |
+| 🇨🇴 Colombia | CO | COP | NIT |
+| 🇨🇱 Chile | CL | CLP | RUT |
+| 🇵🇪 Peru | PE | PEN | RUC |
+| 🇫🇷 France | FR | EUR | SIREN |
+| 🇩🇪 Germany | DE | EUR | Steuernummer |
+| 🇬🇧 United Kingdom | GB | GBP | UTR |
+| 🇨🇦 Canada | CA | CAD | SIN/BN |
+| 🇯🇵 Japan | JP | JPY | Corporate Number |
+| 🇨🇳 China | CN | CNY | USCC |
+| 🇮🇳 India | IN | INR | PAN |
+| 🇦🇺 Australia | AU | AUD | TFN/ABN |
+| 🇳🇿 New Zealand | NZ | NZD | IRD |
+
+### Supported Currencies (15)
+
+USD, MXN, EUR, GBP, CAD, BRL, ARS, COP, CLP, PEN, JPY, CNY, INR, AUD, NZD
+
+### Key International Features
+
+#### 1. Jurisdictional Filtering
+Companies automatically see only clients from their own country by default, ensuring compliance with regional data protection laws (GDPR, CCPA, LFPDPPP).
+
+```bash
+# Mexican company sees only Mexican clients
+GET /v1/blacklist?country_code=MX
+
+# Can override to view other countries if needed
+GET /v1/blacklist?country_code=US
+```
+
+#### 2. Multi-Currency Support
+- Debts are stored in their original currency (MXN, USD, EUR, etc.)
+- Trust Score calculations convert all debts to USD internally for fair comparison
+- Display always shows original currency to users
+- Automatic currency detection based on company's country
+
+**Example:**
+```json
+{
+  "debt_amount": 5000.00,
+  "currency": "MXN",           // Original currency preserved
+  "trust_score": 65,            // Calculated using USD equivalent
+  "total_debt_usd": 295.00     // Internal calculation
+}
+```
+
+#### 3. Tax ID Validation
+The API validates tax IDs according to each country's format:
+
+- **Mexico (RFC)**: AAAA######XXX (person) or AAA######XXX (company)
+- **USA (SSN/EIN)**: ###-##-#### or #########
+- **Spain (NIF/CIF/NIE)**: 8 digits + letter, or specific patterns
+- **Brazil (CPF/CNPJ)**: 11 digits (person) or 14 digits (company) with check digits
+- **Argentina (CUIT/CUIL)**: ##-########-# with check digit
+- **Chile (RUT)**: 7-8 digits + check digit
+- And more...
+
+Invalid tax IDs are automatically rejected with helpful error messages:
+```json
+{
+  "success": false,
+  "message": "Invalid RFC format for MX",
+  "status": 422
+}
+```
+
+#### 4. Automatic Currency Detection
+When a company registers or reports a client, the currency is automatically detected from their country:
+
+```bash
+# Register company from Mexico
+POST /v1/auth/register
+{
+  "country_code": "MX"  # currency auto-set to MXN
+}
+
+# Report client - currency inherited from company
+POST /v1/blacklist
+{
+  "debt_amount": 5000  # Automatically saved as MXN
+}
+```
+
+### International Endpoints
+
+#### Get Countries
+```bash
+GET /v1/countries
+```
+Returns list of all supported countries with their currencies and tax ID labels.
+
+#### Get Country Details
+```bash
+GET /v1/countries/MX
+```
+Returns detailed information about a specific country.
+
+#### Get Currencies
+```bash
+GET /v1/currencies
+```
+Returns list of all supported currencies with codes, names, and symbols.
+
+#### Convert Currency
+```bash
+GET /v1/currency/convert?amount=1000&from=MXN&to=USD
+```
+Converts an amount between two currencies using current exchange rates.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "original": {
+      "amount": 1000,
+      "currency": "MXN",
+      "formatted": "$1,000.00"
+    },
+    "converted": {
+      "amount": 59,
+      "currency": "USD",
+      "formatted": "$59.00"
+    },
+    "exchange_rate": 0.059
+  }
+}
+```
+
+### Database Schema Updates
+
+#### Updated Fields
+
+**`companies` table:**
+- `country_code` (VARCHAR(2), indexed) - ISO 3166-1 alpha-2 country code
+- `currency` (VARCHAR(3)) - ISO 4217 currency code
+
+**`blacklisted_clients` table:**
+- `tax_id` (VARCHAR(50)) - Generic tax ID (was `rfc_tax_id`)
+- `country_code` (VARCHAR(2), indexed) - ISO country code (was `country`)
+- `currency` (VARCHAR(3)) - Client's currency
+
+**`blacklist_reports` table:**
+- `currency` (VARCHAR(3), indexed) - Currency context for debt_amount
+
+### Services
+
+#### TaxIdValidationService
+Located: `app/Services/TaxIdValidationService.php`
+
+Validates tax IDs for multiple countries with country-specific algorithms.
+
+**Methods:**
+- `validate(?string $taxId, string $countryCode): bool` - Validate tax ID format
+- `getLabel(string $countryCode): string` - Get tax ID label for country
+
+**Supported Validations:**
+- Mexico (RFC) - Full validation with check digits
+- USA (SSN/EIN) - Format and invalid pattern detection
+- Spain (NIF/CIF/NIE) - Multiple format support
+- Brazil (CPF/CNPJ) - Check digit validation
+- Argentina (CUIT/CUIL) - Check digit validation
+- Chile (RUT) - Check digit validation
+- Generic validation for other countries
+
+#### CurrencyService
+Located: `app/Services/CurrencyService.php`
+
+Handles currency operations including conversion, formatting, and country-currency mapping.
+
+**Methods:**
+- `getDefaultCurrency(string $countryCode): string` - Get default currency for country
+- `convertToUSD(float $amount, string $fromCurrency): float` - Convert to USD
+- `convertFromUSD(float $usdAmount, string $toCurrency): float` - Convert from USD
+- `convert(float $amount, string $from, string $to): float` - Convert between currencies
+- `format(float $amount, string $currency): string` - Format with currency symbol
+- `getSupportedCurrencies(): array` - Get all supported currencies
+- `getSupportedCountries(): array` - Get all supported countries
+- `isValidCurrency(string $currency): bool` - Validate currency code
+- `getExchangeRate(string $currency): float` - Get exchange rate to USD
+
+**Exchange Rates:**
+Exchange rates are currently stored as static values in the service (approximate December 2025 rates). For production, consider integrating with an external API like:
+- ExchangeRate-API (free)
+- Fixer.io
+- CurrencyAPI.com
+
+### Usage Examples
+
+#### Example 1: Register Mexican Company
+```bash
+POST /v1/auth/register
+{
+  "name": "Estafeta Express",
+  "email": "contacto@estafeta.mx",
+  "password": "password123",
+  "country_code": "MX"
+  # currency automatically set to MXN
+}
+```
+
+#### Example 2: Report Client with Auto-Detection
+```bash
+POST /v1/blacklist
+{
+  "category_id": 1,
+  "name": "Fernando García",
+  "email": "fernando@gmail.com",
+  "phone": "3331234567",
+  "tax_id": "GACF850101ABC",  # Validated as RFC
+  "debt_amount": 5000.00       # Saved as MXN (from company)
+}
+```
+
+#### Example 3: Search Clients by Country
+```bash
+# Mexican company sees only Mexican clients by default
+GET /v1/blacklist/search?phone=333
+
+# Can search in other countries
+GET /v1/blacklist/search?country_code=US&email=john
+```
+
+#### Example 4: Multi-Currency Statistics
+```bash
+GET /v1/stats?country_code=MX
+```
+
+**Response:**
+```json
+{
+  "country": {
+    "code": "MX",
+    "name": "Mexico",
+    "currency": "MXN"
+  },
+  "total_blacklisted_clients": 150,
+  "total_debt_usd": 125430.50,  # All debts converted to USD
+  "risk_distribution": {
+    "CRITICAL": 10,
+    "HIGH": 25,
+    "MEDIUM": 50,
+    "LOW": 65
+  }
+}
+```
+
+### Benefits of International Support
+
+1. **Legal Compliance**: Automatic jurisdictional separation complies with GDPR, CCPA, and other regional laws
+2. **Fair Risk Assessment**: Multi-currency conversion ensures Trust Scores are calculated fairly regardless of currency
+3. **Regional Marketing**: Enable country-specific marketing (e.g., "Fraud Prevention API for Mexico")
+4. **Data Accuracy**: Tax ID validation reduces data entry errors
+5. **User Experience**: Automatic currency detection simplifies the API for international users
+6. **Scalability**: Easy to add new countries and currencies
+
+### Future Enhancements
+
+1. **Real-Time Exchange Rates**: Integrate with external API for live currency conversion
+2. **Regional Webhooks**: Notify only companies in the same country
+3. **Multi-Language Support**: Translate error messages and responses
+4. **Regional Fraud Patterns**: AI-based fraud detection specific to each country
+5. **Cross-Border Fraud Detection**: Optional flag to detect clients operating across multiple countries
 
 ## Database Schema
 
@@ -45,6 +328,8 @@ Registered companies that can report clients
 - name
 - email (unique)
 - password (hashed bcrypt)
+- country_code (string(2), indexed) // ISO 3166-1 alpha-2
+- currency (string(3)) // ISO 4217
 - is_active (boolean, default false) // Admin approval required
 - api_token (nullable, sha256 hashed)
 - created_at, updated_at
@@ -120,13 +405,15 @@ Reported problematic clients
 - email (indexed)
 - phone (indexed)
 - ip_address (nullable)
-- rfc_tax_id (nullable) // Tax ID
-- address, city, state, country, postal_code (all nullable)
+- tax_id (nullable) // Generic Tax ID (was rfc_tax_id)
+- address, city, state, postal_code (all nullable)
+- country_code (string(2), indexed) // ISO 3166-1 alpha-2 (was country)
+- currency (string(3)) // ISO 4217
 - reports_count (integer, default 1) // Total number of incidents/reports
 - trust_score (integer, 0-100, default 100) // AI-calculated risk score
 - risk_level (string: LOW|MEDIUM|HIGH|CRITICAL)
 - risk_factors (json, nullable) // Array of risk factor descriptions
-- total_debt (decimal, default 0) // Sum of all debts
+- total_debt (decimal, default 0) // Sum of all debts in USD
 - created_at, updated_at
 ```
 
@@ -141,6 +428,7 @@ Individual company reports about clients
 - blacklisted_client_id (FK -> blacklisted_clients, cascade)
 - company_id (FK -> companies, cascade)
 - debt_amount (decimal, nullable)
+- currency (string(3), indexed) // ISO 4217
 - incident_date (date, nullable)
 - fraud_type_id (FK -> fraud_types, set null)
 - additional_info (text, nullable)
@@ -261,6 +549,14 @@ POST   /admin/logout           - Admin logout
 ```
 GET    /categories             - List all business categories
 GET    /fraud-types            - List all fraud types
+```
+
+#### International Support
+```
+GET    /countries              - List all supported countries with currency and tax ID info
+GET    /countries/{code}       - Get detailed information about a specific country
+GET    /currencies             - List all supported currencies with codes and symbols
+GET    /currency/convert       - Convert amount between currencies (query params: amount, from, to)
 ```
 
 #### Blacklist Operations
@@ -779,10 +1075,11 @@ app/
 │   │   ├── AdminFraudTypeController.php
 │   │   ├── ApiKeyController.php
 │   │   ├── AuthController.php
-│   │   ├── BlacklistController.php        // Main controller
+│   │   ├── BlacklistController.php        // Main controller (with international support)
 │   │   ├── CategoryController.php
 │   │   ├── FraudTypeController.php
-│   │   └── StatsController.php
+│   │   ├── InternationalController.php    // Countries & currencies
+│   │   └── StatsController.php            // Country-specific statistics
 │   └── Middleware/
 │       ├── AdminAuth.php
 │       └── CompanyAuth.php                // Supports Bearer + X-API-Key
@@ -799,7 +1096,9 @@ app/
 │   └── BlacklistReportObserver.php
 ├── Services/
 │   ├── ApiKeyService.php                  // API key generation/validation
-│   └── TrustScoreService.php              // Trust score logic
+│   ├── CurrencyService.php                // Currency conversion & formatting
+│   ├── TaxIdValidationService.php         // Multi-country tax ID validation
+│   └── TrustScoreService.php              // Trust score logic (multi-currency)
 └── Helpers/
     ├── ApiResponse.php
     └── helpers.php
@@ -815,7 +1114,8 @@ database/
 │   ├── xxxx_create_phone_numbers_table.php
 │   ├── xxxx_create_api_keys_table.php
 │   ├── xxxx_add_trust_score_fields_to_blacklisted_clients_table.php
-│   └── xxxx_add_missing_foreign_keys_to_blacklist_reports_table.php
+│   ├── xxxx_add_missing_foreign_keys_to_blacklist_reports_table.php
+│   └── xxxx_add_international_support_to_tables.php  // Multi-country & currency
 └── seeders/
     ├── CategorySeeder.php
     ├── FraudTypeSeeder.php
@@ -967,8 +1267,8 @@ SESSION_DRIVER=file
 
 ---
 
-**Last Updated:** December 6, 2024
-**Current Version:** 1.1.0
+**Last Updated:** December 8, 2025
+**Current Version:** 2.0.0 (International Support)
 **Maintained By:** BlacklistHub Team
 
 ## Quick Reference - API Keys

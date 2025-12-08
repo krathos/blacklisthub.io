@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\BlacklistController;
 use App\Http\Controllers\Api\StatsController;
 use App\Http\Controllers\Api\ApiKeyController;
 use App\Http\Controllers\Api\AdminApiKeyController;
+use App\Http\Controllers\Api\InternationalController;
 
 // Company Authentication
 Route::prefix('auth')->group(function () {
@@ -49,6 +50,14 @@ Route::prefix('admin')->group(function () {
 Route::middleware('company.auth')->group(function () {
     Route::get('categories', [CategoryController::class, 'index']);
     Route::get('fraud-types', [FraudTypeController::class, 'index']);
+});
+
+// International Support (Countries & Currencies)
+Route::middleware('company.auth')->group(function () {
+    Route::get('countries', [InternationalController::class, 'countries']);
+    Route::get('countries/{code}', [InternationalController::class, 'countryDetails']);
+    Route::get('currencies', [InternationalController::class, 'currencies']);
+    Route::get('currency/convert', [InternationalController::class, 'convertCurrency']);
 });
 
 // Blacklist Operations
