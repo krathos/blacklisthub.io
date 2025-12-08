@@ -83,11 +83,12 @@ class BlacklistController extends Controller
             'email' => 'required|email|max:255',
             'phone' => 'required|string|max:50',
             'ip_address' => 'nullable|string|max:45',
-            'rfc_tax_id' => 'nullable|string|max:50',
+            'tax_id' => 'nullable|string|max:50',
             'address' => 'nullable|string',
             'city' => 'nullable|string|max:100',
             'state' => 'nullable|string|max:100',
-            'country' => 'nullable|string|max:100',
+            'country_code' => 'nullable|string|size:2',
+            'currency' => 'nullable|string|size:3',
             'postal_code' => 'nullable|string|max:20',
             'debt_amount' => 'nullable|numeric|min:0',
             'incident_date' => 'nullable|date',
@@ -97,10 +98,26 @@ class BlacklistController extends Controller
 
         $company = $request->company;
 
+        // Auto-detect currency from company's country if not provided
+        $currency = $request->currency ?? \App\Services\CurrencyService::getDefaultCurrency($company->country_code);
+
+        // Auto-detect country_code from company if not provided
+        $countryCode = $request->country_code ?? $company->country_code;
+
+        // Validate tax_id format for the country
+        if ($request->tax_id && !\App\Services\TaxIdValidationService::validate($request->tax_id, $countryCode)) {
+            $taxIdLabel = \App\Services\TaxIdValidationService::getLabel($countryCode);
+            return api_error("Invalid {$taxIdLabel} format for {$countryCode}", 422);
+        }
+
         DB::beginTransaction();
         try {
-            $client = BlacklistedClient::where('email', $request->email)
-                ->orWhere('phone', $request->phone)
+            // Filter by company's country only - jurisdictional filtering
+            $client = BlacklistedClient::where('country_code', $countryCode)
+                ->where(function($query) use ($request) {
+                    $query->where('email', $request->email)
+                          ->orWhere('phone', $request->phone);
+                })
                 ->first();
 
             if ($client) {
@@ -112,11 +129,12 @@ class BlacklistController extends Controller
                     'email' => $request->email,
                     'phone' => $request->phone,
                     'ip_address' => $request->ip_address,
-                    'rfc_tax_id' => $request->rfc_tax_id,
+                    'tax_id' => $request->tax_id,
                     'address' => $request->address,
                     'city' => $request->city,
                     'state' => $request->state,
-                    'country' => $request->country,
+                    'country_code' => $countryCode,
+                    'currency' => $currency,
                     'postal_code' => $request->postal_code,
                     'reports_count' => 1,
                 ]);
@@ -126,6 +144,7 @@ class BlacklistController extends Controller
                 'blacklisted_client_id' => $client->id,
                 'company_id' => $company->id,
                 'debt_amount' => $request->debt_amount,
+                'currency' => $currency,
                 'incident_date' => $request->incident_date,
                 'fraud_type_id' => $request->fraud_type_id,
                 'additional_info' => $request->additional_info,
@@ -196,11 +215,12 @@ class BlacklistController extends Controller
             'clients.*.email' => 'required|email|max:255',
             'clients.*.phone' => 'required|string|max:50',
             'clients.*.ip_address' => 'nullable|string|max:45',
-            'clients.*.rfc_tax_id' => 'nullable|string|max:50',
+            'clients.*.tax_id' => 'nullable|string|max:50',
             'clients.*.address' => 'nullable|string',
             'clients.*.city' => 'nullable|string|max:100',
             'clients.*.state' => 'nullable|string|max:100',
-            'clients.*.country' => 'nullable|string|max:100',
+            'clients.*.country_code' => 'nullable|string|size:2',
+            'clients.*.currency' => 'nullable|string|size:3',
             'clients.*.postal_code' => 'nullable|string|max:20',
             'clients.*.debt_amount' => 'nullable|numeric|min:0',
             'clients.*.incident_date' => 'nullable|date',
@@ -214,8 +234,16 @@ class BlacklistController extends Controller
         foreach ($request->clients as $clientData) {
             DB::beginTransaction();
             try {
-                $client = BlacklistedClient::where('email', $clientData['email'])
-                    ->orWhere('phone', $clientData['phone'])
+                // Auto-detect currency and country for each client
+                $currency = $clientData['currency'] ?? \App\Services\CurrencyService::getDefaultCurrency($company->country_code);
+                $countryCode = $clientData['country_code'] ?? $company->country_code;
+
+                // Filter by company's country - jurisdictional filtering
+                $client = BlacklistedClient::where('country_code', $countryCode)
+                    ->where(function($query) use ($clientData) {
+                        $query->where('email', $clientData['email'])
+                              ->orWhere('phone', $clientData['phone']);
+                    })
                     ->first();
 
                 if ($client) {
@@ -227,11 +255,12 @@ class BlacklistController extends Controller
                         'email' => $clientData['email'],
                         'phone' => $clientData['phone'],
                         'ip_address' => $clientData['ip_address'] ?? null,
-                        'rfc_tax_id' => $clientData['rfc_tax_id'] ?? null,
+                        'tax_id' => $clientData['tax_id'] ?? null,
                         'address' => $clientData['address'] ?? null,
                         'city' => $clientData['city'] ?? null,
                         'state' => $clientData['state'] ?? null,
-                        'country' => $clientData['country'] ?? null,
+                        'country_code' => $countryCode,
+                        'currency' => $currency,
                         'postal_code' => $clientData['postal_code'] ?? null,
                         'reports_count' => 1,
                     ]);
@@ -241,6 +270,7 @@ class BlacklistController extends Controller
                     'blacklisted_client_id' => $client->id,
                     'company_id' => $company->id,
                     'debt_amount' => $clientData['debt_amount'] ?? null,
+                    'currency' => $currency,
                     'incident_date' => $clientData['incident_date'] ?? null,
                     'fraud_type_id' => $clientData['fraud_type_id'] ?? null,
                     'additional_info' => $clientData['additional_info'] ?? null,
@@ -310,7 +340,13 @@ class BlacklistController extends Controller
     public function index(Request $request)
     {
         $perPage = $request->input('per_page', 15);
+        $company = $request->company;
         $query = BlacklistedClient::with(['category', 'blacklistReports.company', 'blacklistReports.fraudType']);
+
+        // Default: Filter by company's country (jurisdictional filtering)
+        // Companies can override by passing country_code param
+        $countryCode = $request->input('country_code', $company->country_code);
+        $query->where('country_code', $countryCode);
 
         if ($request->has('category_id')) {
             $query->where('category_id', $request->category_id);
@@ -358,7 +394,13 @@ class BlacklistController extends Controller
      */
     public function search(Request $request)
     {
+        $company = $request->company;
         $query = BlacklistedClient::with(['category', 'blacklistReports.company', 'blacklistReports.fraudType', 'phoneNumbers']);
+
+        // Default: Filter by company's country (jurisdictional filtering)
+        // Companies can override by passing country_code param
+        $countryCode = $request->input('country_code', $company->country_code);
+        $query->where('country_code', $countryCode);
 
         if ($request->has('email')) {
             $query->where('email', 'like', '%' . $request->email . '%');
@@ -378,8 +420,8 @@ class BlacklistController extends Controller
             $query->where('name', 'like', '%' . $request->name . '%');
         }
 
-        if ($request->has('rfc_tax_id')) {
-            $query->where('rfc_tax_id', 'like', '%' . $request->rfc_tax_id . '%');
+        if ($request->has('tax_id')) {
+            $query->where('tax_id', 'like', '%' . $request->tax_id . '%');
         }
 
         if ($request->has('category_id')) {
@@ -390,6 +432,10 @@ class BlacklistController extends Controller
             $query->whereHas('blacklistReports', function($q) use ($request) {
                 $q->where('fraud_type_id', $request->fraud_type_id);
             });
+        }
+
+        if ($request->has('currency')) {
+            $query->where('currency', $request->currency);
         }
 
         $perPage = $request->input('per_page', 15);
@@ -496,17 +542,18 @@ class BlacklistController extends Controller
             'email' => 'sometimes|email|max:255',
             'phone' => 'sometimes|string|max:50',
             'ip_address' => 'nullable|string|max:45',
-            'rfc_tax_id' => 'nullable|string|max:50',
+            'tax_id' => 'nullable|string|max:50',
             'address' => 'nullable|string',
             'city' => 'nullable|string|max:100',
             'state' => 'nullable|string|max:100',
-            'country' => 'nullable|string|max:100',
+            'country_code' => 'nullable|string|size:2',
+            'currency' => 'nullable|string|size:3',
             'postal_code' => 'nullable|string|max:20',
         ]);
 
         $client->update($request->only([
             'category_id', 'name', 'email', 'phone', 'ip_address',
-            'rfc_tax_id', 'address', 'city', 'state', 'country', 'postal_code'
+            'tax_id', 'address', 'city', 'state', 'country_code', 'currency', 'postal_code'
         ]));
 
         return api_success([

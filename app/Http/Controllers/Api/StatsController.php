@@ -38,7 +38,12 @@ class StatsController extends Controller
      */
     public function index(Request $request)
     {
+        $company = $request->company;
         $query = BlacklistedClient::query();
+
+        // Default: Filter by company's country (jurisdictional filtering)
+        $countryCode = $request->input('country_code', $company->country_code);
+        $query->where('country_code', $countryCode);
 
         if ($request->has('category_id')) {
             $query->where('category_id', $request->category_id);
@@ -48,23 +53,53 @@ class StatsController extends Controller
         $totalReports = $query->sum('reports_count');
 
         $topReportedClients = BlacklistedClient::with('category')
+            ->where('country_code', $countryCode)
             ->when($request->has('category_id'), function($q) use ($request) {
                 $q->where('category_id', $request->category_id);
             })
             ->orderBy('reports_count', 'desc')
             ->limit(10)
-            ->get(['id', 'name', 'email', 'category_id', 'reports_count']);
+            ->get(['id', 'name', 'email', 'category_id', 'reports_count', 'trust_score', 'risk_level']);
 
-        $clientsByCategory = Category::withCount('blacklistedClients')
+        $clientsByCategory = Category::withCount(['blacklistedClients' => function($q) use ($countryCode) {
+                $q->where('country_code', $countryCode);
+            }])
             ->having('blacklisted_clients_count', '>', 0)
             ->orderBy('blacklisted_clients_count', 'desc')
             ->get(['id', 'name', 'blacklisted_clients_count']);
 
-        $totalCompanies = Company::where('is_active', true)->count();
+        // Risk level distribution
+        $riskDistribution = BlacklistedClient::where('country_code', $countryCode)
+            ->selectRaw('risk_level, COUNT(*) as count')
+            ->groupBy('risk_level')
+            ->get()
+            ->pluck('count', 'risk_level');
+
+        // Total debt in USD (converted from all currencies)
+        $totalDebtUSD = 0;
+        $debtReports = \App\Models\BlacklistReport::whereHas('blacklistedClient', function($q) use ($countryCode) {
+                $q->where('country_code', $countryCode);
+            })
+            ->whereNotNull('debt_amount')
+            ->get();
+
+        foreach ($debtReports as $report) {
+            $totalDebtUSD += \App\Services\CurrencyService::convertToUSD(
+                $report->debt_amount,
+                $report->currency ?? 'USD'
+            );
+        }
+
+        // Get country info
+        $countryInfo = collect(\App\Services\CurrencyService::getSupportedCountries())
+            ->firstWhere('code', $countryCode);
+
+        $totalCompanies = Company::where('is_active', true)
+            ->where('country_code', $countryCode)
+            ->count();
 
         $companyStats = null;
         if ($request->has('company')) {
-            $company = $request->company;
             $companyStats = [
                 'total_reports' => $company->blacklistReports()->count(),
                 'unique_clients_reported' => $company->blacklistReports()
@@ -74,9 +109,16 @@ class StatsController extends Controller
         }
 
         return api_success([
+            'country' => [
+                'code' => $countryCode,
+                'name' => $countryInfo['name'] ?? $countryCode,
+                'currency' => $countryInfo['currency'] ?? 'USD',
+            ],
             'total_blacklisted_clients' => $totalClients,
             'total_reports' => $totalReports,
+            'total_debt_usd' => round($totalDebtUSD, 2),
             'total_active_companies' => $totalCompanies,
+            'risk_distribution' => $riskDistribution,
             'top_reported_clients' => $topReportedClients,
             'clients_by_category' => $clientsByCategory,
             'company_stats' => $companyStats,

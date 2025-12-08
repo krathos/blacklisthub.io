@@ -50,12 +50,19 @@ class AuthController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:companies',
             'password' => 'required|string|min:8',
+            'country_code' => 'required|string|size:2',
+            'currency' => 'nullable|string|size:3',
         ]);
+
+        // Auto-detect currency from country if not provided
+        $currency = $request->currency ?? \App\Services\CurrencyService::getDefaultCurrency($request->country_code);
 
         $company = Company::create([
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
+            'country_code' => strtoupper($request->country_code),
+            'currency' => strtoupper($currency),
             'is_active' => false,
         ]);
 
@@ -64,6 +71,8 @@ class AuthController extends Controller
                 'id' => $company->id,
                 'name' => $company->name,
                 'email' => $company->email,
+                'country_code' => $company->country_code,
+                'currency' => $company->currency,
                 'is_active' => $company->is_active,
             ]
         ], 'Company registered successfully. Waiting for admin activation.', 201);

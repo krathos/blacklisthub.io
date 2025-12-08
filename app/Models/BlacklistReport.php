@@ -13,6 +13,7 @@ class BlacklistReport extends Model
         'blacklisted_client_id',
         'company_id',
         'debt_amount',
+        'currency',
         'incident_date',
         'fraud_type_id',
         'additional_info',

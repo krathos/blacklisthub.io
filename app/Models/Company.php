@@ -13,6 +13,8 @@ class Company extends Authenticatable
         'name',
         'email',
         'password',
+        'country_code',
+        'currency',
         'is_active',
         'api_token',
     ];

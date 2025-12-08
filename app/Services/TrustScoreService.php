@@ -24,18 +24,27 @@ class TrustScoreService
             $factors[] = "Multiple company reports ({$client->reports_count})";
         }
 
-        // Factor 2: Deuda total
-        $totalDebt = $client->blacklistReports()->sum('debt_amount');
+        // Factor 2: Deuda total (convertida a USD para comparación consistente)
+        $totalDebtUSD = 0;
+        $reports = $client->blacklistReports()->whereNotNull('debt_amount')->get();
 
-        if ($totalDebt > 10000) {
+        foreach ($reports as $report) {
+            $debtInUSD = CurrencyService::convertToUSD(
+                $report->debt_amount,
+                $report->currency ?? 'USD'
+            );
+            $totalDebtUSD += $debtInUSD;
+        }
+
+        if ($totalDebtUSD > 10000) {
             $score -= 20;
-            $factors[] = "Total debt exceeds \$10,000 (\${$totalDebt})";
-        } elseif ($totalDebt > 5000) {
+            $factors[] = "Total debt exceeds $10,000 USD (~" . CurrencyService::format($totalDebtUSD, 'USD') . ")";
+        } elseif ($totalDebtUSD > 5000) {
             $score -= 10;
-            $factors[] = "Total debt exceeds \$5,000 (\${$totalDebt})";
-        } elseif ($totalDebt > 1000) {
+            $factors[] = "Total debt exceeds $5,000 USD (~" . CurrencyService::format($totalDebtUSD, 'USD') . ")";
+        } elseif ($totalDebtUSD > 1000) {
             $score -= 5;
-            $factors[] = "Debt amount: \${$totalDebt}";
+            $factors[] = "Debt amount: " . CurrencyService::format($totalDebtUSD, 'USD');
         }
 
         // Factor 3: Tipos de fraude diferentes
@@ -90,7 +99,8 @@ class TrustScoreService
             'trust_score' => $score,
             'risk_level' => $riskLevel,
             'risk_factors' => $factors,
-            'total_debt' => $totalDebt,
+            'total_debt' => round($totalDebtUSD, 2),
+            'total_debt_currency' => 'USD',
             'recommendation' => $recommendation,
             'analysis' => [
                 'reports_count' => $client->reports_count,
