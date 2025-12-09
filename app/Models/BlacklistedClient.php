@@ -12,6 +12,7 @@ class BlacklistedClient extends Model
     protected $fillable = [
         'category_id',
         'name',
+        'company_name',
         'email',
         'phone',
         'ip_address',

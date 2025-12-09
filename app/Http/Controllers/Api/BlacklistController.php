@@ -38,6 +38,7 @@ class BlacklistController extends Controller
      * 
      * @bodyParam category_id integer required The business category ID. Example: 1
      * @bodyParam name string required Client full name. Example: Fernando García
+     * @bodyParam company_name string Company name where client works (optional). Example: Acme Corp
      * @bodyParam email string required Client email address. Example: fernando@gmail.com
      * @bodyParam phone string required Client phone number. Example: 3331234567
      * @bodyParam ip_address string Client IP address. Example: 192.168.1.100
@@ -80,6 +81,7 @@ class BlacklistController extends Controller
         $request->validate([
             'category_id' => 'required|exists:categories,id',
             'name' => 'required|string|max:255',
+            'company_name' => 'nullable|string|max:255',
             'email' => 'required|email|max:255',
             'phone' => 'required|string|max:50',
             'ip_address' => 'nullable|string|max:45',
@@ -126,6 +128,7 @@ class BlacklistController extends Controller
                 $client = BlacklistedClient::create([
                     'category_id' => $request->category_id,
                     'name' => $request->name,
+                    'company_name' => $request->company_name,
                     'email' => $request->email,
                     'phone' => $request->phone,
                     'ip_address' => $request->ip_address,
@@ -186,6 +189,7 @@ class BlacklistController extends Controller
      * @bodyParam clients array required Array of clients to report.
      * @bodyParam clients[].category_id integer required The business category ID. Example: 1
      * @bodyParam clients[].name string required Client full name. Example: Juan Pérez
+     * @bodyParam clients[].company_name string Company name where client works (optional). Example: Acme Corp
      * @bodyParam clients[].email string required Client email address. Example: juan@hotmail.com
      * @bodyParam clients[].phone string required Client phone number. Example: 3339876543
      * @bodyParam clients[].debt_amount number Amount owed. Example: 2500.00
@@ -212,6 +216,7 @@ class BlacklistController extends Controller
             'clients' => 'required|array|min:1',
             'clients.*.category_id' => 'required|exists:categories,id',
             'clients.*.name' => 'required|string|max:255',
+            'clients.*.company_name' => 'nullable|string|max:255',
             'clients.*.email' => 'required|email|max:255',
             'clients.*.phone' => 'required|string|max:50',
             'clients.*.ip_address' => 'nullable|string|max:45',
@@ -252,6 +257,7 @@ class BlacklistController extends Controller
                     $client = BlacklistedClient::create([
                         'category_id' => $clientData['category_id'],
                         'name' => $clientData['name'],
+                        'company_name' => $clientData['company_name'] ?? null,
                         'email' => $clientData['email'],
                         'phone' => $clientData['phone'],
                         'ip_address' => $clientData['ip_address'] ?? null,
@@ -498,6 +504,7 @@ class BlacklistController extends Controller
      * 
      * @urlParam id integer required The client ID. Example: 1
      * @bodyParam name string Client full name. Example: Fernando García López
+     * @bodyParam company_name string Company name where client works (optional). Example: Acme Corp
      * @bodyParam email string Client email. Example: fernando.new@gmail.com
      * @bodyParam phone string Client phone. Example: 3331234567
      * @bodyParam category_id integer Category ID. Example: 1
@@ -539,6 +546,7 @@ class BlacklistController extends Controller
         $request->validate([
             'category_id' => 'sometimes|exists:categories,id',
             'name' => 'sometimes|string|max:255',
+            'company_name' => 'nullable|string|max:255',
             'email' => 'sometimes|email|max:255',
             'phone' => 'sometimes|string|max:50',
             'ip_address' => 'nullable|string|max:45',
@@ -552,7 +560,7 @@ class BlacklistController extends Controller
         ]);
 
         $client->update($request->only([
-            'category_id', 'name', 'email', 'phone', 'ip_address',
+            'category_id', 'name', 'company_name', 'email', 'phone', 'ip_address',
             'tax_id', 'address', 'city', 'state', 'country_code', 'currency', 'postal_code'
         ]));
 
