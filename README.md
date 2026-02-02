@@ -54,7 +54,7 @@ Think of it as a **shared blacklist network** where businesses can protect each 
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/yourusername/blacklisthub.io
+git clone https://github.com/krathos/blacklisthub.io
 cd blacklisthub.io
 ```
 
